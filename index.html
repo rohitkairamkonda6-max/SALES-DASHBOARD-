@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sales Analytics Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#14181f;--muted:#667085;--line:#e4e7ec;--accent:#2563eb;--good:#16a34a;--bad:#dc2626;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1218;--card:#181c25;--text:#eef0f4;--muted:#9aa3b2;--line:#2a3040;--accent:#60a5fa;--good:#4ade80;--bad:#f87171}}
+:root[data-theme="dark"]{--bg:#0f1218;--card:#181c25;--text:#eef0f4;--muted:#9aa3b2;--line:#2a3040;--accent:#60a5fa;--good:#4ade80;--bad:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 2px}.sub{color:var(--muted);margin:0 0 16px;font-size:13px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;align-items:center}
+select,input,button{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text)}
+button{cursor:pointer;background:var(--accent);color:#fff;border:0}
+button.alt{background:var(--card);color:var(--text);border:1px solid var(--line)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.v{font-size:22px;font-weight:650;margin-top:2px}.d{font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:12px}
+.ch{position:relative;height:240px}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px;text-align:right;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:500}
+.good{color:var(--good)}.bad{color:var(--bad)}
+.hint{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Sales Analytics Dashboard</h1>
+<p class="sub" id="src">Sample data loaded</p>
+<div id="msg" class="card" style="display:none;margin-bottom:12px"></div>
+<div class="bar">
+<select id="fr"></select><select id="fc"></select>
+<input type="date" id="f1"><input type="date" id="f2">
+<span class="k">Margin %</span><input type="number" id="mg" value="25" min="0" max="95" step="1" style="width:80px" title="Used when your CSV has no cost column"><button class="alt" id="reset">Reset</button>
+<label><input type="file" id="file" accept=".csv,text/csv" multiple hidden><button class="alt" onclick="document.getElementById('file').click()">Upload CSV</button></label>
+<button class="alt" id="sample">Sample data</button>
+</div>
+<div class="kpis" id="kpis"></div>
+<div class="grid">
+<div class="card"><div class="k">Monthly revenue &amp; profit</div><div class="ch"><canvas id="c1"></canvas></div></div>
+<div class="card"><div class="k">Revenue by category</div><div class="ch"><canvas id="c2"></canvas></div></div>
+<div class="card"><div class="k">Revenue by region</div><div class="ch"><canvas id="c3"></canvas></div></div>
+</div>
+<div class="card" style="margin-bottom:12px"><div class="bar" style="margin-bottom:8px"><div class="k">Sales forecast</div><select id="fh"><option value="3">Next 3 months</option><option value="6" selected>Next 6 months</option><option value="12">Next 12 months</option></select><select id="fm"><option value="lin">Linear trend</option><option value="ma">3-month average</option></select></div><div id="fk" class="kpis" style="margin-bottom:8px"></div><div class="ch"><canvas id="c4"></canvas></div><p class="hint" id="fn"></p></div>
+<div class="card"><div class="k">Top products</div><div class="tw"><table id="tbl"></table></div>
+<p class="hint">Select one or more CSVs. Needs date, product, units and price columns (region, category and cost are optional; common names like Order Date, Quantity, Unit Price are recognized). Data stays in your browser.</p></div>
+</div>
+<script>
+let ALL=[],charts={};
+const $=id=>document.getElementById(id);
+const fmt=n=>n.toLocaleString(undefined,{maximumFractionDigits:0});
+const money=n=>'$'+fmt(n);
+function sample(){
+  let s=42;const r=()=>(s=(s*16807)%2147483647)/2147483647;
+  const regions=['North','South','East','West'];
+  const prods={Electronics:[['Headphones',80,50],['Smartwatch',200,130],['Speaker',60,35]],Apparel:[['Jacket',90,45],['Sneakers',70,38],['T-Shirt',20,8]],Home:[['Lamp',35,15],['Blender',55,30],['Cushion',18,7]]};
+  const out=[];const start=new Date('2025-11-01');
+  for(let i=0;i<700;i++){
+    const d=new Date(start.getTime()+Math.floor(r()*350)*864e5);
+    const cat=Object.keys(prods)[Math.floor(r()*3)];const p=prods[cat][Math.floor(r()*3)];
+    out.push({date:d.toISOString().slice(0,10),region:regions[Math.floor(r()*4)],category:cat,product:p[0],units:1+Math.floor(r()*8),price:p[1],cost:p[2]});
+  }
+  return out;
+}
+function pd(s){s=String(s||'').trim();const p=n=>String(n).padStart(2,'0');let m;
+  if(m=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/))return m[1]+'-'+p(m[2])+'-'+p(m[3]);
+  if(m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/)){let a=+m[1],b=+m[2];let d=a,mo=b;if(b>12){d=b;mo=a}return m[3]+'-'+p(mo)+'-'+p(d)}
+  const dt=new Date(s);return isNaN(dt)?'':dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate())}
+function parseCSV(t){
+  const lines=t.trim().split(/\r?\n/);
+  const dl=[',',';','\t'].map(d=>[d,lines[0].split(d).length]).sort((a,b)=>b[1]-a[1])[0][0];
+  const split=l=>{const o=[];let c='',q=false;for(const ch of l){if(ch=='"')q=!q;else if(ch==dl&&!q){o.push(c);c=''}else c+=ch}o.push(c);return o.map(x=>x.trim())};
+  const AL={date:['date','payment date','payment_date','paymentdate','order date','orderdate','order_date','invoice date','sale date'],region:['region','city','state','area','country'],category:['category','product category','type'],product:['product','product name','item','sku'],units:['units','quantity','qty','units sold'],price:['price','unit price','unit_price','selling price'],cost:['cost','unit cost','unit_cost','cogs'],amount:['sales amount','sales_amount','amount','total','total sales','revenue','sales']};
+  const raw=split(lines[0]).map(x=>x.toLowerCase().replace(/^\ufeff/,''));
+  const idx={},miss=[];
+  for(const k in AL){const i=raw.findIndex(x=>AL[k].includes(x));idx[k]=i;if(i<0&&['date','product','units'].includes(k))miss.push(k)}
+  if(idx.price<0&&idx.amount<0)miss.push('price (or sales amount)');
+  if(miss.length)throw new Error('Missing columns: '+miss.join(', ')+'. Found: '+raw.join(', '));
+  const num=s=>+String(s).replace(/[$,\s]/g,'')||0;
+  return lines.slice(1).filter(Boolean).map(l=>{const v=split(l);const g=k=>idx[k]>=0?v[idx[k]]:'';
+    return {date:pd(g('date')),region:g('region')||'All',category:g('category')||'All',product:g('product')||'Unknown',units:num(g('units')),price:idx.price>=0?num(g('price')):(num(g('units'))?num(g('amount'))/num(g('units')):0),cost:idx.cost>=0?num(g('cost')):null}}).filter(x=>x.date);
+}
+function setData(d,label){
+  ALL=d;$('src').textContent=label+' · '+d.length+' rows';
+  const opt=(el,k,all)=>{const v=[...new Set(d.map(x=>x[k]))].sort();el.innerHTML='<option value="">'+all+'</option>'+v.map(x=>`<option>${x}</option>`).join('')};
+  opt($('fr'),'region','All regions');opt($('fc'),'category','All categories');
+  const ds=d.map(x=>x.date).sort();$('f1').value=ds[0];$('f2').value=ds[ds.length-1];
+  render();
+}
+function filtered(){
+  return ALL.filter(x=>(!$('fr').value||x.region==$('fr').value)&&(!$('fc').value||x.category==$('fc').value)&&x.date>=$('f1').value&&x.date<=$('f2').value);
+}
+function M(){return Math.min(95,Math.max(0,+$('mg').value||0))/100}
+function ec(x){return x.cost==null?x.price*(1-M()):x.cost}
+function group(rows,key){
+  const m={};rows.forEach(x=>{const k=typeof key=='function'?key(x):x[key];const g=m[k]||(m[k]={rev:0,profit:0,units:0});
+    g.rev+=x.units*x.price;g.profit+=x.units*(x.price-ec(x));g.units+=x.units});return m;
+}
+function draw(id,type,labels,sets,opts={}){
+  if(charts[id])charts[id].destroy();
+  const css=getComputedStyle(document.documentElement);const txt=css.getPropertyValue('--muted').trim();
+  charts[id]=new Chart($(id),{type,data:{labels,datasets:sets},options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:sets.length>1,labels:{color:txt}}},
+    scales:{x:{ticks:{color:txt},grid:{display:false}},y:{ticks:{color:txt,callback:v=>'$'+fmt(v)}}},...opts}});
+}
+function forecast(months,mk){
+  const rows=filtered();let ks=mk.slice();
+  const last=rows.reduce((a,x)=>x.date>a?x.date:a,'');
+  const ly=+last.slice(0,4),lm=+last.slice(5,7),ld=+last.slice(8,10);
+  const partial=!!last&&ld<new Date(ly,lm,0).getDate();
+  const cut=partial&&ks.length>3;if(cut)ks.pop();
+  const y=ks.map(m=>months[m].rev),n=y.length,H=+$('fh').value,meth=$('fm').value;
+  if(n<3){$('fk').innerHTML='';if(charts.c4){charts.c4.destroy();charts.c4=null}$('fn').textContent='Need at least 3 months of data to forecast.';return}
+  const xm=(n-1)/2,ym=y.reduce((s,v)=>s+v,0)/n;let sxy=0,sxx=0,syy=0;
+  y.forEach((v,i)=>{sxy+=(i-xm)*(v-ym);sxx+=(i-xm)**2;syy+=(v-ym)**2});
+  const slope=sxy/sxx,icpt=ym-slope*xm,r2=syy?sxy*sxy/(sxx*syy):0;
+  const out=[];
+  if(meth=='lin'){for(let i=0;i<H;i++)out.push(Math.max(0,icpt+slope*(n+i)))}
+  else{const s=y.slice();for(let i=0;i<H;i++){const v=(s[s.length-1]+s[s.length-2]+s[s.length-3])/3;s.push(v);out.push(v)}}
+  const [by,bm]=ks[n-1].split('-').map(Number);
+  const fl=out.map((_,i)=>{const d=new Date(by,bm+i,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')});
+  draw('c4','line',ks.concat(fl),[{label:'Actual',data:y.concat(out.map(()=>null)),borderColor:'#2563eb',tension:.3},{label:'Forecast',data:y.map((v,i)=>i==n-1?v:null).concat(out),borderColor:'#f59e0b',borderDash:[6,4],tension:.3}]);
+  const tot=out.reduce((s,v)=>s+v,0);
+  $('fk').innerHTML=[['Next month',money(out[0])],['Next '+H+' months',money(tot)],['Trend / month',(slope>=0?'+':'−')+money(Math.abs(slope))],['Fit (R²)',meth=='lin'?r2.toFixed(2):'–']].map(([p,q])=>`<div class="card"><div class="k">${p}</div><div class="v">${q}</div></div>`).join('');
+  $('fn').textContent='Based on '+n+' months of history'+(cut?' (latest month excluded as incomplete)':'')+'. '+(n<6?'Short history, so treat as rough. ':'')+'Forecasts are estimates, not guarantees.';
+}
+function render(){
+  const rows=filtered();
+  const est=rows.some(x=>x.cost==null);const rev=rows.reduce((a,x)=>a+x.units*x.price,0),prof=rows.reduce((a,x)=>a+x.units*(x.price-ec(x)),0);
+  const units=rows.reduce((a,x)=>a+x.units,0);
+  const months=group(rows,x=>x.date.slice(0,7));const mk=Object.keys(months).sort();
+  let growth=null;if(mk.length>=2){const a=months[mk[mk.length-2]].rev,b=months[mk[mk.length-1]].rev;growth=a?(b-a)/a*100:null}
+  const k=[['Revenue',money(rev)],[est?'Est. gross profit':'Profit',money(prof)],[est?'Assumed margin':'Margin',rev?(prof/rev*100).toFixed(1)+'%':'–'],['Orders',fmt(rows.length)],['Units sold',fmt(units)],['Avg order value',rows.length?money(rev/rows.length):'–'],
+    ['MoM growth',growth==null?'–':`<span class="${growth>=0?'good':'bad'}">${growth>=0?'▲':'▼'} ${Math.abs(growth).toFixed(1)}%</span>`]];
+  $('kpis').innerHTML=k.map(([a,b])=>`<div class="card"><div class="k">${a}</div><div class="v">${b}</div></div>`).join('');
+  draw('c1','line',mk,[{label:'Revenue',data:mk.map(m=>months[m].rev),borderColor:'#2563eb',tension:.3},{label:'Profit',data:mk.map(m=>months[m].profit),borderColor:'#16a34a',tension:.3}]);
+  const cat=group(rows,'category'),ck=Object.keys(cat);
+  draw('c2','bar',ck,[{data:ck.map(c=>cat[c].rev),backgroundColor:'#2563eb'}]);
+  const reg=group(rows,'region'),rk=Object.keys(reg);
+  draw('c3','bar',rk,[{data:rk.map(c=>reg[c].rev),backgroundColor:'#7c3aed'}]);
+  forecast(months,mk);const pr=group(rows,'product');const top=Object.entries(pr).sort((a,b)=>b[1].rev-a[1].rev).slice(0,8);
+  $('tbl').innerHTML='<tr><th>Product</th><th>Units</th><th>Revenue</th><th>Profit</th><th>Margin</th></tr>'+
+    top.map(([n,g])=>`<tr><td>${n}</td><td>${fmt(g.units)}</td><td>${money(g.rev)}</td><td>${money(g.profit)}</td><td>${(g.profit/g.rev*100).toFixed(1)}%</td></tr>`).join('');
+}
+['fr','fc','f1','f2','mg','fh','fm'].forEach(i=>$(i).addEventListener('change',render));
+$('reset').onclick=()=>setData(ALL,$('src').textContent.split(' · ')[0]);
+$('sample').onclick=()=>setData(sample(),'Sample data');
+function showMsg(t,bad){const m=$('msg');m.style.display='block';m.className='card '+(bad?'bad':'good');m.textContent=t}
+$('file').onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;
+  try{let all=[];for(const f of fs)all=all.concat(parseCSV(await f.text()));
+    if(!all.length)throw new Error('No usable rows found. Check that the date column has valid dates (e.g. 2026-01-31 or 31/01/2026).');
+    setData(all,fs.length>1?fs.length+' files':fs[0].name);showMsg('Loaded '+all.length+' rows from '+fs.length+' file(s).',0)}
+  catch(err){showMsg('Upload failed: '+err.message,1)}e.target.value=''};
+setData(sample(),'Sample data');
+</script>
+</body>
+</html>
